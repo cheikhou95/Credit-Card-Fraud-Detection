@@ -1,0 +1,116 @@
+---
+title: "Credit Card Fraud Detection"
+author: "Cheikhou Kane"
+date: "9/24/2019"
+output: html_document
+---
+
+In the following, we will be investigating a dataset of 284,807 credit card transactions in order to train a model that would detect fraudulent transactions. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#Libraries
+library(tidyverse)
+library(ggplot2)
+library(wesanderson)
+library(knitr)
+library(circular)
+library(lubridate)
+library(gridExtra)
+
+#Data
+credit.raw <- read.csv("creditcard.csv")
+
+credit <- credit.raw %>%
+  mutate(Type = recode(Class,
+                       `0` = "Non-Fraudulent",
+                       `1` = "Fraudulent"))
+```
+
+## 1. Exploring the dataset
+
+```{r, echo=FALSE}
+summary <- credit.raw %>%
+  group_by(Class) %>%
+  summarise(count = n(),
+            Cost = round(sum(Amount, na.rm = TRUE)))%>%
+  mutate(Type = recode(Class,
+                       `0` = "Non-Fraudulent",
+                       `1` = "Fraudulent"),
+            Count = count) %>%
+  select(Type,Count,Cost)
+
+ggplot(summary, aes(x=reorder(Type, Count), y=100*(Count/nrow(credit.raw)), fill = Type)) + 
+  geom_bar(stat = "identity") + 
+  scale_fill_manual(values=c("#C93312","#899DA4")) + 
+  theme_classic() + ylab("Frequency") + 
+  xlab("Transaction Type") +
+  ggtitle("Fig 1. Distribution of Transaction Type") +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+```
+
+We have an imbalanced dataset: only about .2 % of the transactions were fraudulent (492 out of 284807) as shown below. Training any model using this dataset would hence bias the predictions towards the more common class, Non-Fraudulent, in our case. Since we want our model to detect patterns that give signs of fraud, it is important to take note of this as we dive further into analysis. 
+
+```{r, echo=FALSE}
+kable(summary, caption = "Table 1. Distribution of Transaction Type")
+```
+
+
+Despite their scarcity, the fraudulent transactions totaled over 60,000€ (65,730$): not detecting fraud can be quite costly.
+
+```{r, echo=FALSE}
+plot(jitter(Class, 0.02)~Amount, data = credit, col = "#35274A",
+main = "Fig 2. Transaction Type Vs Amount",
+xlab = "Transaction Amount",
+ylab = "Transaction Type")
+```
+
+Overall, it seems that most fraudulent transactions involve relatively small amounts. However, as stated above, these can easily add up.
+
+```{r, echo=FALSE}
+
+credit <- credit %>%
+  mutate(Timestamp = Time)
+
+index <- credit$Timestamp > 86400
+credit$Timestamp[index] <- credit$Time[index] - 86400
+
+#credit <- credit %>%
+#  mutate(hour = seconds_to_period(Timestamp))
+
+```
+
+
+```{r, echo=FALSE}
+credit.fraud <- credit %>%
+  filter(Class == 1)
+
+ts <- credit.fraud$Timestamp / 3600
+
+ts <- circular(ts, units = "hours", template = "clock24")
+
+# Plot a circular histogram
+clock <- ggplot(data.frame(ts), aes(x = ts)) +
+  geom_histogram(breaks = seq(0, 24), fill = "#C93312", color="black") +
+  coord_polar() + scale_x_continuous("", limits = c(0, 24), breaks = seq(0, 24)) +
+  scale_fill_manual(values = wes_palette(n=1, name="BottleRocket2")) +
+  ggtitle("3.b Fraudulent Transactions") +
+  theme_minimal()
+
+credit.clean <- credit %>%
+  filter(Class == 0)
+
+ts <- credit.clean$Timestamp / 3600
+
+ts <- circular(ts, units = "hours", template = "clock24")
+
+# Plot a circular histogram
+clock1 <- ggplot(data.frame(ts), aes(x = ts)) +
+  geom_histogram(breaks = seq(0, 24), fill = "#899DA4", color = "black") +
+  coord_polar() + scale_x_continuous("", limits = c(0, 24), breaks = seq(0, 24)) +
+  theme_minimal() +ggtitle("3.a Non Fraudlulent Transactions")
+
+grid.arrange(clock1, clock, ncol=2, top = "Fig 3. Distribution of transactions over time")
+```
+
+As we can see above, fraudulent transactions in contrast to non-fraudulent ones appear to have favorite times of the day. Most fraudulent transactions occur in the middle of the night (2-3 AM), the middle of the day (11:noon) and early in the evening(5:7 PM). 
